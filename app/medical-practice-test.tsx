@@ -1,10 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { submitScore } from "@/lib/canvas-api"
+
+// Replace simulated data with real course data
+const ltiLaunchData = {
+  courseId: "10423967", // Use the ID of your "CBL Test Course"
+  assignmentId: "50151886", // You'll need to create an assignment in Canvas and use its ID
+  studentId: "113980607", // This is your user ID as shown in the enrollments
+}
 
 // Simulated questions (replace with actual API call in production)
 const questions = [
@@ -15,10 +23,27 @@ const questions = [
   { id: 5, text: "Describe the stages of the cardiac cycle.", points: 4 },
 ]
 
+interface Grade {
+  score: number;
+  feedback: string;
+}
+
 export default function MedicalPracticeTest() {
   const [answers, setAnswers] = useState<string[]>(Array(questions.length).fill(""))
-  const [grades, setGrades] = useState<{ score: number; feedback: string }[]>([])
+  const [grades, setGrades] = useState<Grade[]>([])
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [ltiData] = useState(ltiLaunchData)
+  const [totalScore, setTotalScore] = useState(0)
+  const [totalPossibleScore, setTotalPossibleScore] = useState(0)
+
+  useEffect(() => {
+    // Simulate LTI launch
+    console.log("Simulated LTI launch with data:", ltiData)
+    
+    // Calculate total possible score
+    const possibleScore = questions.reduce((sum, question) => sum + question.points, 0)
+    setTotalPossibleScore(possibleScore)
+  }, [ltiData])
 
   const handleAnswerChange = (index: number, value: string) => {
     const newAnswers = [...answers]
@@ -27,18 +52,52 @@ export default function MedicalPracticeTest() {
   }
 
   const handleSubmit = async () => {
-    const response = await fetch('/api/score-answers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(questions.map((q, i) => ({ ...q, answer: answers[i] }))),
-    });
-    const newGrades = await response.json();
-    setGrades(newGrades);
-    setIsSubmitted(true);
-  }
+    try {
+      console.log('Starting handleSubmit function');
+      const response = await fetch('/api/score-answers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(questions.map((q, i) => ({ ...q, answer: answers[i] }))),
+      });
+      console.log('Received response from /api/score-answers');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const newGrades: Grade[] = await response.json();
+      console.log('Parsed grades:', newGrades);
+      setGrades(newGrades);
+      setIsSubmitted(true);
 
-  const totalScore = grades.reduce((sum, grade) => sum + grade.score, 0)
-  const totalPossibleScore = questions.reduce((sum, question) => sum + question.points, 0)
+      // Calculate total score
+      const score = newGrades.reduce((sum, grade) => sum + grade.score, 0)
+      setTotalScore(score)
+      console.log('Calculated total score:', score);
+
+      // Submit score to Canvas
+      console.log('Attempting to submit score to Canvas...', {
+        courseId: ltiData.courseId,
+        assignmentId: ltiData.assignmentId,
+        studentId: ltiData.studentId,
+        score
+      });
+      const result = await submitScore(
+        ltiData.courseId, 
+        ltiData.assignmentId, 
+        ltiData.studentId,
+        score  // Send the raw score instead of percentage
+      );
+      console.log("Score submitted to Canvas successfully:", result);
+      
+      alert(`Test completed and score of ${score} points submitted to Canvas successfully!`);
+    } catch (error) {
+      console.error("Error during submission process:", error);
+      if (error instanceof Error) {
+        console.error("Error message:", error.message);
+        console.error("Error stack:", error.stack);
+      }
+      alert("An error occurred while submitting the score. Please check the console for details.");
+    }
+  }
 
   return (
     <Card className="max-w-4xl mx-auto">
@@ -58,7 +117,7 @@ export default function MedicalPracticeTest() {
               className="mb-2"
               disabled={isSubmitted}
             />
-            {isSubmitted && (
+            {isSubmitted && grades[index] && (
               <div className="flex justify-between items-center mt-2">
                 <p className="text-sm italic">{grades[index].feedback}</p>
                 <span className="font-semibold">Score: {grades[index].score}/{question.points}</span>
